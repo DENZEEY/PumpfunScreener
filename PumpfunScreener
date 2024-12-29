@@ -1,0 +1,180 @@
+import streamlit as st
+import requests
+import pandas as pd
+import plotly.graph_objects as go
+from datetime import datetime, timedelta
+import time
+
+def fetch_pump_fun_data():
+    """
+    Fetches meme coin data from pump.fun API. Note: This is a placeholder implementation
+    since the actual API endpoint and structure would need to be determined.
+    
+    Returns:
+        list: List of dictionaries containing coin data
+    """
+    try:
+        # Replace with actual API endpoint
+        response = requests.get('https://api.pump.fun/coins')
+        return response.json()
+    except Exception as e:
+        st.error(f"Error fetching data: {str(e)}")
+        return []
+
+def get_price_chart_data(coin_address):
+    """
+    Fetches 1-minute price chart data for a specific coin.
+    
+    Args:
+        coin_address (str): The blockchain address of the coin
+        
+    Returns:
+        pd.DataFrame: DataFrame with timestamp and price data
+    """
+    try:
+        # Replace with actual API endpoint
+        end_time = datetime.now()
+        start_time = end_time - timedelta(minutes=60)
+        
+        # API call to get historical price data
+        response = requests.get(
+            f'https://api.pump.fun/price-history',
+            params={
+                'address': coin_address,
+                'start_time': start_time.isoformat(),
+                'end_time': end_time.isoformat(),
+                'interval': '1m'
+            }
+        )
+        
+        data = response.json()
+        return pd.DataFrame(data)
+    except Exception as e:
+        st.error(f"Error fetching price data: {str(e)}")
+        return pd.DataFrame()
+
+def create_price_chart(df):
+    """
+    Creates a 1-minute price chart using Plotly.
+    
+    Args:
+        df (pd.DataFrame): DataFrame with timestamp and price data
+        
+    Returns:
+        go.Figure: Plotly figure object
+    """
+    fig = go.Figure()
+    
+    fig.add_trace(
+        go.Candlestick(
+            x=df['timestamp'],
+            open=df['open'],
+            high=df['high'],
+            low=df['low'],
+            close=df['close']
+        )
+    )
+    
+    fig.update_layout(
+        title='1 Minute Price Chart',
+        yaxis_title='Price',
+        xaxis_title='Time',
+        height=400,
+        template='plotly_dark'
+    )
+    
+    return fig
+
+def main():
+    """
+    Main application function that creates the Streamlit interface and manages
+    data flow and updates.
+    """
+    st.set_page_config(page_title='Memecoin Tracker', layout='wide')
+    
+    st.title('🚀 Memecoin Tracker')
+    st.markdown('Tracking high-performing memecoins from pump.fun')
+    
+    # Add filters and controls
+    col1, col2 = st.columns(2)
+    with col1:
+        min_bonding_curve = st.slider(
+            'Minimum Bonding Curve Percentage',
+            min_value=88,
+            max_value=100,
+            value=88
+        )
+    
+    with col2:
+        auto_refresh = st.checkbox('Auto-refresh (10s)', value=True)
+    
+    # Create main data container
+    data_container = st.container()
+    
+    def refresh_data():
+        """
+        Refreshes data and updates the display.
+        """
+        with data_container:
+            st.subheader('High Performing Coins')
+            
+            # Fetch and filter data
+            coins_data = fetch_pump_fun_data()
+            filtered_coins = [
+                coin for coin in coins_data 
+                if coin.get('bonding_curve_percentage', 0) >= min_bonding_curve
+            ]
+            
+            if not filtered_coins:
+                st.info('No coins currently meet the criteria')
+                return
+            
+            # Create main coin metrics table
+            metrics_df = pd.DataFrame(filtered_coins)
+            st.dataframe(
+                metrics_df[[
+                    'name', 'symbol', 'bonding_curve_percentage',
+                    'price', '24h_volume', 'market_cap'
+                ]].style.format({
+                    'bonding_curve_percentage': '{:.2f}%',
+                    'price': '${:.8f}',
+                    '24h_volume': '${:,.2f}',
+                    'market_cap': '${:,.2f}'
+                })
+            )
+            
+            # Display individual coin charts
+            for coin in filtered_coins:
+                st.subheader(f"{coin['name']} ({coin['symbol']})")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric(
+                        'Current Price',
+                        f"${coin['price']:.8f}",
+                        f"{coin['price_change_24h']:.2f}%"
+                    )
+                    st.metric(
+                        'Bonding Curve',
+                        f"{coin['bonding_curve_percentage']:.2f}%"
+                    )
+                
+                # Fetch and display price chart
+                price_data = get_price_chart_data(coin['address'])
+                if not price_data.empty:
+                    fig = create_price_chart(price_data)
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                st.divider()
+    
+    # Initial data load
+    refresh_data()
+    
+    # Auto-refresh loop
+    if auto_refresh:
+        while True:
+            time.sleep(10)
+            refresh_data()
+
+if __name__ == '__main__':
+    main()
